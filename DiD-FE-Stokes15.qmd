@@ -1,0 +1,109 @@
+---
+title: "༄ Estimating Difference-in-Difference / Fixed Effects Models"
+subtitle: "A replication of selected fixed effects analyses using panel data from Stokes, 2015"
+author: "EDS 241"
+format:
+  html:
+    theme: sketchy
+date: "2025-02-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+------------------------------------------------------------------------
+
+### Study & data source:
+
+### *Electoral Backlash against Climate Policy: A Natural Experiment on Retrospective Voting and Local Resistance to Public Policy*. 
+
+**Stokes, 2016:** [https://doi.org/10.1111/ajps.12220](https://onlinelibrary.wiley.com/doi/full/10.1111/ajps.12220)
+
+**Data source:** [Dataverse-Stokes2015](https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/SDUGCC)
+
+**NOTE:** Replication of fixed effects model results is approximate. 
+
+------------------------------------------------------------------------
+
+```{r}
+library(tidyverse)
+library(janitor)
+library(here)         
+library(jtools) 
+library(gt)
+library(fixest) # Fast FE estimation
+```
+
+------------------------------------------------------------------------
+
+### Read in data
+
+```{r}
+
+panel_data <- read_csv(here("data", "Stokes15_panel_data.csv")) %>%
+  mutate(across(c(precinct_id, year), as.factor))
+
+```
+
+------------------------------------------------------------------------
+
+### We could run our FE models with `lm()` except...
+
+- `N = 18,558`
+- `precinct_id`: Factor with 6186 precinct levels
+- `year`: Factor with 3 year-level time points 
+
+> 'mod_1 <- lm(perc_lib ~ prop + factor(precinct_id) + factor(year), data=divisions)'
+
+```{r}
+
+length(unique(panel_data$precinct_id))
+
+length(unique(panel_data$year))
+```
+
+------------------------------------------------------------------------
+
+### Fixed effects panel model for `turbine proposal` (without controls)
+
+📜 [Documentation - fixest](https://lrberge.github.io/fixest/articles/fixest_walkthrough.html)
+
+```{r}
+fe_model <- feols(perc_lib ~ proposed_turbine | precinct_id + year,
+                   data = panel_data,
+                   cluster = ~precinct_id)
+
+export_summs(fe_model, digits = 3, statistics = "none",
+             model.names = c("Outcome: Turbine Proposal"))
+```
+
+------------------------------------------------------------------------
+
+### Fixed effects panel model for `turbine proposal` (with controls)
+
+```{r}
+fe_model2 <- feols(
+    perc_lib ~ proposed_turbine + 
+    p_uni_degree + log_pop_denc + unemploy_rate + log_median_inc + p_immigrant
+    | precinct_id + year,
+ data = panel_data,
+ cluster = ~precinct_id)
+
+export_summs(fe_model2, digits = 3, statistics = "none",
+             model.names = c("Outcome: Turbine Proposal"))
+```
+
+------------------------------------------------------------------------
+
+# Fixed effects model results (Stokes, 2015):
+
+Table 1: *Effects of Proposed Wind Turbines on Incumbent Party Vote Share*
+
+![](figures/Table1-Stokes15.png)
+
+📜 [Stokes, 2020; Page 10](https://drive.google.com/file/d/1y2Okzjq2EA43AW5JzCvFS8ecLpeP6NKh/view?usp=drive_link)
+
+------------------------------------------------------------------------
+
+

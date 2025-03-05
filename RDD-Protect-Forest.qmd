@@ -1,0 +1,252 @@
+---
+title: "↯ Estimating Regression Discontinuity Designs (RDD) "
+subtitle: "A `rough` replication using simulated data following the analyses in Neal, 2024"
+author: "EDS 241"
+format:
+  html:
+    theme: sketchy
+date: "2025-02-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+------------------------------------------------------------------------
+
+### RDD regression equation:
+
+$Y_i = \beta_0 + \beta_1 D_i + \beta_2 X_i + \beta_3 (D_i \cdot X_i) + \epsilon_i$
+
+- $Y_i$: Outcome variable (`Deforestation rate`)
+- $D_i$: Treatment indicator (`Protected area`)
+- $X_i$: Running variable (`Distance to Protected Area Border (km)`)
+- $D_i \cdot X_i$: Interaction term that allows slope vary across threshold
+- $\epsilon_i$: Error term
+
+------------------------------------------------------------------------
+
+### Load packages
+
+------------------------------------------------------------------------
+
+```{r}
+library(tidyverse)
+library(rdrobust)
+library(here)
+library(jtools)
+library(janitor)
+library(patchwork)
+```
+
+------------------------------------------------------------------------
+
+### Read in simulated data to `roughly` replicate analyses in Neal, 24 
+
+```{r}
+
+sim_data <- read_csv(here("data", "Simulated_Deforestation_Data5.csv")) 
+
+write_csv(sim_data, here("data", "Simulated_Deforestation_Data5.csv"))
+
+```
+
+------------------------------------------------------------------------
+
+### Visualize the discontinuity using binned means (`bin size = 1`)
+
+```{r}
+data_binned <- sim_data %>%
+  mutate(distance_bin = cut(distance, breaks = seq(-20, 20, by = 1), include.lowest = TRUE)) %>%
+  group_by(distance_bin, protected) %>%
+  summarize(
+    avg_distance = mean(distance), # Averaged binned distance
+    avg_deforest = mean(deforest),
+    .groups = "drop"
+  )
+```
+
+------------------------------------------------------------------------
+
+### Plot using binned data
+
+```{r}
+
+ggplot(data_binned, aes(x = avg_distance, y = avg_deforest, color = as.factor(protected))) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", aes(group = protected), se = TRUE) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+  labs(title = "Regression Discontinuity Plot (Binned by Distance)",
+       x = "Running Variable (Distance)", y = "Deforestation Rate",
+       color = "Protected Area") +
+  theme_minimal()
+```
+
+------------------------------------------------------------------------
+
+### Run RDD analysis using OLS 
+
+```{r}
+
+rdd_ols <- lm(
+    deforest ~  # outcome
+    protected + # treatment effect 
+    distance +  # running variable
+    protected*distance + # allows slope to vary
+    slope_cat + road_cat + water_cat + soil_cat, # <<< CONTROLS
+              data = sim_data)
+
+# Display summary of regression results
+summ(rdd_ols, digits = 3, 
+     model.info = FALSE, model.fit = FALSE)
+```
+
+::: callout-tip
+🚫 P-values (`p`) & standard errors (`S.E.`) are never zero!
+
+*Output values are printed `0.000` due to rounding settings
+:::
+
+::: callout
+`NOTE`: We have modern estimation methods that do a better job at estimating a *robust* RDD treatment effect. However, an OLS analysis is often included for reference/comparison as a robustness check. 
+:::
+
+------------------------------------------------------------------------
+
+### Estimate & Visialize RDD using {`rdrobust`}
+
+📜 [Documentation - rdrobust](https://cran.r-project.org/web/packages/rdrobust/rdrobust.pdf)
+
+------------------------------------------------------------------------
+
+**RDD Robust Estimation Method (`local polynomial regression`)**: 
+
+Local polynomial regression is a method used to give more weight to observations near a specific point— in this case, the RDD threshold. Instead of using OLS, it fits separate non-linear regressions on either side of the cutoff using a subset of the data near the cutoff (i.e., `bandwidth`). 
+
+**Interpreting output**:
+
+*Default estimation options used by the `rdrobust()` function*:
+
+- Bandwidth Optimization (`BW type: mserd`): Bandwidth is optimized to balance accuracy & bias.
+- Bandwidth Estimate (`BW est. (h) = 5.729`): The estimated range around the cutoff used to subset the data to estimate the treatment effect.
+- Kernel (`Triangular`): Gives higher weight to data points close to the cutoff.
+- Variance Estimation (`VCE method: NN`): Instead of assuming equal variance across all observations, the error estimates are adjusted to account for variability near the cutoff.
+
+------------------------------------------------------------------------
+
+**Take a random sample (To adjust for memory-limit & speed) **
+
+```{r}
+global_samp <- sim_data %>%
+     sample_n(size = nrow(sim_data) * 1.0) # <<< e.g., .5 for 50%
+```
+
+------------------------------------------------------------------------
+
+### Estimate Global RDD 
+```{r}
+
+global_rdd <- rdrobust(
+  y = global_samp$deforest,
+  x = global_samp$distance,
+  covs = global_samp %>% select(slope_cat, road_cat, water_cat, soil_cat),
+  c = 0, # Cutoff at 0 (protected area boundary)
+  #p = 1, # Local linear regression
+  kernel = "triangular"
+)
+
+# Print summary of results
+summary(global_rdd)
+```
+
+------------------------------------------------------------------------
+
+**Visualize the RDD discontinuity using `rdplot()`**:
+
+This plot presents the local polynomial regression curves fit on either side of the cutoff.
+
+```{r}
+rdplot(
+  y = sim_data$deforest,
+  x = sim_data$distance,
+  c = 0,
+  binselect = "es",
+  title = "Regression Discontinuity - Global Deforestation Rate",
+  x.label = "Distance to Protected Area Border (km)",
+  y.label = "Deforestation Rate"
+)
+```
+
+### Estimate separate RDD models by `country` using function 
+
+> Country levels: Brazil, DRC, Malaysia, Indonesia, Canada, Australia
+
+::: callout-tip
+What is an iterator or loop function? 
+
+`lapply()` loops across the input levels for `country` and applies the function `run_country_rdd` 
+:::
+
+```{r}
+
+run_country_rdd <- function(country_name) {
+  df_country <- sim_data %>% filter(country == country_name)
+
+    rdd_model <- rdrobust(
+      y = df_country$deforest,
+      x = df_country$distance,
+      covs = df_country %>% select(slope_cat, road_cat, water_cat, soil_cat),
+      c = 0, 
+      p = 1,
+      kernel = "triangular"
+    )
+}
+
+# Apply the function to all countries
+rdd_6country <- lapply(unique(sim_data$country), run_country_rdd)
+
+# Print summary for Malaysia
+summary(rdd_6country[[3]]) 
+```
+
+### Generate country-level discontinuity plots
+
+```{r, results="hide", fig.show="hide"}
+
+# Create list to store plots
+plot_list <- list()
+
+# Loop across 6 countries and plot
+for (country_name in unique(sim_data$country)) {
+  df_country <- sim_data %>% filter(country == country_name)
+  
+ p <- rdplot(
+      y = df_country$deforest,
+      x = df_country$distance,
+      c = 0,
+      binselect = "es",
+      title = paste(country_name),
+      x.label="", y.label = "")
+  
+ p <- p$rdplot +
+     labs(x=" ",y="")
+ 
+  plot_list[[country_name]] <- p  # Store each plot in the list
+  }
+```
+
+```{r, results='hide'}
+final_plot <- wrap_plots(plot_list) + 
+  plot_layout(ncol = 2) +  
+  plot_annotation(
+    title = "Deforestation Rate",
+    caption = "Source: Simulation Data"
+  )
+```
+
+### Print combined RDD plots
+
+```{r}
+final_plot + 
+  labs(x = "Distance to Protected Area Border (km)")
+```
