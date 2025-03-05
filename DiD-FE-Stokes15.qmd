@@ -72,7 +72,7 @@ length(unique(panel_data$year))
 ```{r}
 fe_model <- feols(perc_lib ~ proposed_turbine | precinct_id + year,
                    data = panel_data,
-                   cluster = ~precinct_id)
+                   cluster = ~precinct_id) # adjust for covariance 
 
 export_summs(fe_model, digits = 3, statistics = "none",
              model.names = c("Outcome: Turbine Proposal"))
@@ -81,6 +81,8 @@ export_summs(fe_model, digits = 3, statistics = "none",
 ------------------------------------------------------------------------
 
 ### Fixed effects panel model for `turbine proposal` (with controls)
+
+Added controls after treatment variable 
 
 ```{r}
 fe_model2 <- feols(

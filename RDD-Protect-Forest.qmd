@@ -6,6 +6,8 @@ format:
   html:
     theme: sketchy
 date: "2025-02-04"
+editor_options: 
+  chunk_output_type: inline
 ---
 
 ```{r setup, include=FALSE}
@@ -18,11 +20,11 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 $Y_i = \beta_0 + \beta_1 D_i + \beta_2 X_i + \beta_3 (D_i \cdot X_i) + \epsilon_i$
 
-- $Y_i$: Outcome variable (`Deforestation rate`)
-- $D_i$: Treatment indicator (`Protected area`)
-- $X_i$: Running variable (`Distance to Protected Area Border (km)`)
-- $D_i \cdot X_i$: Interaction term that allows slope vary across threshold
-- $\epsilon_i$: Error term
+-   $Y_i$: Outcome variable (`Deforestation rate`)
+-   $D_i$: Treatment indicator (`Protected area`)
+-   $X_i$: Running variable (`Distance to Protected Area Border (km)`) Has to be continuous
+-   $D_i \cdot X_i$: Interaction term that allows slope vary across threshold
+-   $\epsilon_i$: Error term
 
 ------------------------------------------------------------------------
 
@@ -41,13 +43,11 @@ library(patchwork)
 
 ------------------------------------------------------------------------
 
-### Read in simulated data to `roughly` replicate analyses in Neal, 24 
+### Read in simulated data to `roughly` replicate analyses in Neal, 24
 
 ```{r}
 
 sim_data <- read_csv(here("data", "Simulated_Deforestation_Data5.csv")) 
-
-write_csv(sim_data, here("data", "Simulated_Deforestation_Data5.csv"))
 
 ```
 
@@ -84,7 +84,7 @@ ggplot(data_binned, aes(x = avg_distance, y = avg_deforest, color = as.factor(pr
 
 ------------------------------------------------------------------------
 
-### Run RDD analysis using OLS 
+### Run RDD analysis using OLS
 
 ```{r}
 
@@ -93,7 +93,7 @@ rdd_ols <- lm(
     protected + # treatment effect 
     distance +  # running variable
     protected*distance + # allows slope to vary
-    slope_cat + road_cat + water_cat + soil_cat, # <<< CONTROLS
+    slope_cat + road_cat + water_cat + soil_cat, # <<<CONTROLS (simplify the analysis)
               data = sim_data)
 
 # Display summary of regression results
@@ -104,11 +104,11 @@ summ(rdd_ols, digits = 3,
 ::: callout-tip
 🚫 P-values (`p`) & standard errors (`S.E.`) are never zero!
 
-*Output values are printed `0.000` due to rounding settings
+\*Output values are printed `0.000` due to rounding settings
 :::
 
 ::: callout
-`NOTE`: We have modern estimation methods that do a better job at estimating a *robust* RDD treatment effect. However, an OLS analysis is often included for reference/comparison as a robustness check. 
+`NOTE`: We have modern estimation methods that do a better job at estimating a *robust* RDD treatment effect. However, an OLS analysis is often included for reference/comparison as a robustness check.
 :::
 
 ------------------------------------------------------------------------
@@ -119,22 +119,22 @@ summ(rdd_ols, digits = 3,
 
 ------------------------------------------------------------------------
 
-**RDD Robust Estimation Method (`local polynomial regression`)**: 
+**RDD Robust Estimation Method (`local polynomial regression`)**:
 
-Local polynomial regression is a method used to give more weight to observations near a specific point— in this case, the RDD threshold. Instead of using OLS, it fits separate non-linear regressions on either side of the cutoff using a subset of the data near the cutoff (i.e., `bandwidth`). 
+Local polynomial regression is a method used to give more weight to observations near a specific point— in this case, the RDD threshold. Instead of using OLS, it fits separate non-linear regressions on either side of the cutoff using a subset of the data near the cutoff (i.e., `bandwidth`).
 
 **Interpreting output**:
 
 *Default estimation options used by the `rdrobust()` function*:
 
-- Bandwidth Optimization (`BW type: mserd`): Bandwidth is optimized to balance accuracy & bias.
-- Bandwidth Estimate (`BW est. (h) = 5.729`): The estimated range around the cutoff used to subset the data to estimate the treatment effect.
-- Kernel (`Triangular`): Gives higher weight to data points close to the cutoff.
-- Variance Estimation (`VCE method: NN`): Instead of assuming equal variance across all observations, the error estimates are adjusted to account for variability near the cutoff.
+-   Bandwidth Optimization (`BW type: mserd`): Bandwidth is optimized to balance accuracy & bias.
+-   Bandwidth Estimate (`BW est. (h) = 5.729`): The estimated range around the cutoff used to subset the data to estimate the treatment effect.
+-   Kernel (`Triangular`): Gives higher weight to data points close to the cutoff.
+-   Variance Estimation (`VCE method: NN`): Instead of assuming equal variance across all observations, the error estimates are adjusted to account for variability near the cutoff.
 
 ------------------------------------------------------------------------
 
-**Take a random sample (To adjust for memory-limit & speed) **
+**Take a random sample (To adjust for memory-limit & speed)**
 
 ```{r}
 global_samp <- sim_data %>%
@@ -143,7 +143,8 @@ global_samp <- sim_data %>%
 
 ------------------------------------------------------------------------
 
-### Estimate Global RDD 
+### Estimate Global RDD
+
 ```{r}
 
 global_rdd <- rdrobust(
@@ -177,14 +178,14 @@ rdplot(
 )
 ```
 
-### Estimate separate RDD models by `country` using function 
+### Estimate separate RDD models by `country` using function
 
 > Country levels: Brazil, DRC, Malaysia, Indonesia, Canada, Australia
 
 ::: callout-tip
-What is an iterator or loop function? 
+What is an iterator or loop function?
 
-`lapply()` loops across the input levels for `country` and applies the function `run_country_rdd` 
+`lapply()` loops across the input levels for `country` and applies the function `run_country_rdd`
 :::
 
 ```{r}
